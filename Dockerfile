@@ -1,6 +1,10 @@
 # 使用 Python 基础镜像
 FROM python:3.11-slim
 
+# 设置时区为上海，防止定时任务时间错误
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # 安装 Chromium 和依赖（支持 ARM 和 AMD64）
 RUN apt-get update && apt-get install -y \
     chromium \
@@ -47,4 +51,5 @@ ENV DEBUG=false
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
-CMD ["python", "rainyun.py"]
+# 使用 -u 参数禁用 Python 输出缓冲，确保日志实时输出
+CMD ["python", "-u", "rainyun.py"]

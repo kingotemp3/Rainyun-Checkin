@@ -109,7 +109,9 @@ def do_login(driver: WebDriver, wait: WebDriverWait, user: str, pwd: str) -> boo
         login_captcha = wait.until(EC.visibility_of_element_located((By.ID, 'tcaptcha_iframe_dy')))
         logger.warning("触发验证码！")
         driver.switch_to.frame("tcaptcha_iframe_dy")
-        process_captcha()
+        if not process_captcha():
+            logger.error("登录验证码识别失败")
+            return False
     except TimeoutException:
         logger.info("未触发验证码")
     time.sleep(5)
@@ -169,11 +171,14 @@ def get_height_from_style(style):
     return re.search(r'height:\s*([\d.]+)px', style).group(1)
 
 
-def process_captcha():
+def process_captcha(retry_count=0):
+    if retry_count >= 5:
+        logger.error("验证码重试次数过多，任务失败")
+        return False
     try:
         download_captcha_img()
         if check_captcha():
-            logger.info("开始识别验证码")
+            logger.info(f"开始识别验证码 (第 {retry_count + 1} 次尝试)")
             captcha = cv2.imread("temp/captcha.jpg")
             with open("temp/captcha.jpg", 'rb') as f:
                 captcha_b = f.read()
@@ -213,23 +218,25 @@ def process_captcha():
                 logger.info("提交验证码")
                 confirm.click()
                 time.sleep(5)
-                result = wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="tcOperation"]')))
-                if result.get_attribute("class") == 'tc-opera pointer show-success':
+                result_el = wait.until(EC.visibility_of_element_located((By.XPATH, '//*[@id="tcOperation"]')))
+                if 'show-success' in result_el.get_attribute("class"):
                     logger.info("验证码通过")
-                    return
+                    return True
                 else:
                     logger.error("验证码未通过，正在重试")
             else:
                 logger.error("验证码识别失败，正在重试")
         else:
             logger.error("当前验证码识别率低，尝试刷新")
-        reload = driver.find_element(By.XPATH, '//*[@id="reload"]')
-        time.sleep(5)
-        reload.click()
-        time.sleep(5)
-        process_captcha()
+
+        reload_btn = driver.find_element(By.XPATH, '//*[@id="reload"]')
+        time.sleep(2)
+        reload_btn.click()
+        time.sleep(2)
+        return process_captcha(retry_count + 1)
     except TimeoutException:
         logger.error("获取验证码图片失败")
+        return False
 
 
 def download_captcha_img():
@@ -373,13 +380,13 @@ if __name__ == "__main__":
                         logger.info(f"当前剩余积分: {current_points} | 约为 {current_points / 2000:.2f} 元")
                     except Exception:
                         logger.info("无法获取当前积分信息")
-                    driver.quit()
                     exit(0)
             # 如果既没找到领取按钮，也没检测到已签到，说明页面结构可能变了
             raise Exception("未找到签到按钮，且未检测到已签到状态，可能页面结构已变更")
         logger.info("处理验证码")
         driver.switch_to.frame("tcaptcha_iframe_dy")
-        process_captcha()
+        if not process_captcha():
+            raise Exception("验证码识别重试次数过多，签到失败")
         driver.switch_to.default_content()
         driver.implicitly_wait(5)
         points_raw = driver.find_element(By.XPATH,
@@ -388,7 +395,6 @@ if __name__ == "__main__":
         current_points = int(''.join(re.findall(r'\d+', points_raw)))
         logger.info(f"当前剩余积分: {current_points} | 约为 {current_points / 2000:.2f} 元")
         logger.info("任务执行成功！")
-        driver.quit()
     except Exception as e:
         logger.error(f"脚本执行异常终止: {e}")
 
